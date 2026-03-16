@@ -4,6 +4,7 @@ import os
 from datetime import date
 from pathlib import Path
 from dotenv import load_dotenv
+from airflow.decorators import dag, task
 # env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path="./.env")
 API_KEY=os.getenv("API_KEY")
@@ -22,6 +23,7 @@ def get_playlist_id():
     except requests.exceptions.RequestException as e:
         raise e
 
+@task
 def get_video_id(playlist_id):
     video_id = []
     page_token = None
@@ -47,10 +49,13 @@ def get_video_id(playlist_id):
 
     except requests.exceptions.RequestException as e:
         raise e
+
+@task
 def batch_list(video_id_list, batch_size):
     for video_id in range(0, len(video_id_list), batch_size):
         yield video_id_list[video_id:video_id + batch_size]
 
+@task
 def extract_video_data(video_id):
     extract_video_data = []
     def batch_list(video_id_list, batch_size):
@@ -86,6 +91,7 @@ def extract_video_data(video_id):
 
     except requests.exceptions.RequestException as e:
         raise e
+@task 
 def save_to_json(extract_video_data):
     file = f"./data/YT_data_{date.today()}.json"
     with open(file, "w", encoding="utf-8") as f:
