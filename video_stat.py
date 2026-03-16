@@ -1,10 +1,14 @@
 import requests 
 import json 
 import os 
+from datetime import date
+from pathlib import Path
 from dotenv import load_dotenv
+# env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path="./.env")
-API_KEY=os.getenv('API_KEY')
+API_KEY=os.getenv("API_KEY")
 CHANNEL_HANDLE = "MrBeast"
+maxResult=50
 def get_playlist_id():
     try:
         url = f"https://youtube.googleapis.com/youtube/v3/channels?part=contentDetails&forHandle={CHANNEL_HANDLE}&key={API_KEY}"
@@ -14,10 +18,80 @@ def get_playlist_id():
         # print(json.dumps(data, indent=4))
         channel_data_item = data['items'][0]
         channel_playlist_id = channel_data_item['contentDetails']['relatedPlaylists']['uploads']
-        print(channel_playlist_id)
         return channel_playlist_id
     except requests.exceptions.RequestException as e:
-        raise e 
+        raise e
+
+def get_video_id(playlist_id):
+    video_id = []
+    page_token = None
+    base_url = f"https://youtube.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults={maxResult}&playlistId={playlist_id}&key={API_KEY}"
+    try:
+        while True:
+            url = base_url
+            if page_token:
+                url += f"&pageToken={page_token}"
+
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+
+            for item in data['items']:
+                video_id.append(item['contentDetails']['videoId'])
+
+            page_token = data.get('nextPageToken')
+            if not page_token:
+                break
+        
+        return video_id
+
+    except requests.exceptions.RequestException as e:
+        raise e
+def batch_list(video_id_list, batch_size):
+    for video_id in range(0, len(video_id_list), batch_size):
+        yield video_id_list[video_id:video_id + batch_size]
+
+def extract_video_data(video_id):
+    extract_video_data = []
+    def batch_list(video_id_list, batch_size):
+        for video_id in range(0, len(video_id_list), batch_size):
+            yield video_id_list[video_id:video_id + batch_size]
+    try:
+        for batch in batch_list(video_id, maxResult):
+            video_id_str = ",".join(batch)
+            url = f"https://youtube.googleapis.com/youtube/v3/videos?part=contentDetails&part=snippet&part=statistics&id={video_id_str}&key={API_KEY}"
+
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+
+            for item in data.get('items', []):
+                extract_video_data.append(item)
+                video_ids = item['id']
+                snippet = item['snippet']
+                contentDetails = item['contentDetails']
+                statistics = item['statistics']
+                
+                video_data = {
+                    "video_id": video_ids,
+                    "title": snippet.get('title'),
+                    "publishedAt": snippet.get('publishedAt'),
+                    "duration": contentDetails.get('duration'),
+                    "viewCount": statistics.get('viewCount', None),
+                    "likeCount": statistics.get('likeCount', None),
+                    "commentCount": statistics.get('commentCount')
+                }
+                extract_video_data.append(video_data)
+        return extract_video_data
+
+    except requests.exceptions.RequestException as e:
+        raise e
+def save_to_json(extract_video_data):
+    file = f"./data/YT_data_{date.today()}.json"
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(extract_video_data, f, indent=4, ensure_ascii=False)
 if __name__ == "__main__":
-    print("function is executed")
-    get_playlist_id()
+    playlist_id = get_playlist_id()
+    video_id = get_video_id(playlist_id)
+    extract_video_data = extract_video_data(video_id)
+    save_to_json(extract_video_data)
